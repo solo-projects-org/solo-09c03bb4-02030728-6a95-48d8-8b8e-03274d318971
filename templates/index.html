@@ -65,6 +65,31 @@
 </table>
 {% else %}<p class="muted">暂无称重数据。</p>{% endif %}
 
+<h2>留样台账</h2>
+{% if ledgers %}
+<table>
+  <tr><th>#</th><th>创建时间</th><th>序号区间</th><th>台账行数</th><th>状态</th><th></th></tr>
+  {% for lg in ledgers %}
+  <tr><td>{{ lg.id }}</td><td>{{ lg.created_at }}</td>
+      <td>{{ lg.start_seq }} – {{ lg.end_seq }}</td><td>{{ lg.row_count }}</td>
+      <td>{{ status_labels[lg.status] }}</td>
+      <td><a href="{{ url_for('ledger_page', ledger_id=lg.id) }}">打开</a></td></tr>
+  {% endfor %}
+</table>
+{% else %}<p class="muted">暂无台账。</p>{% endif %}
+
+<h3>新建台账（选一段抽检序号，导入留样条码 CSV）</h3>
+<form method="post" action="{{ url_for('ledger_new') }}" enctype="multipart/form-data">
+  <p>序号区间：<input type="number" name="start_seq" required min="1" style="width:7em">
+     – <input type="number" name="end_seq" required min="1" style="width:7em">
+     <span class="muted">从已有抽检序号中选一段，区间内称重不超过 {{ ledger_max }} 条。</span></p>
+  <p>台账 CSV（按留样顺序，两列：条码,整数克重；首行表头可省）：
+     <input type="file" name="file" accept=".csv,text/csv"></p>
+  <textarea name="csv_text" rows="4" placeholder="条码,克重&#10;BC0001,499&#10;BC0002,501"></textarea>
+  <p><button type="submit">创建台账</button>
+     <span class="muted">条码不能重复；按台账顺序对应不同抽检序号；克重最多差 1 克；未留样的称重可跳过。</span></p>
+</form>
+
 <h2>批次记录</h2>
 {% if batches %}
 <table>
@@ -78,6 +103,7 @@
 </table>
 {% else %}<p class="muted">暂无批次。</p>{% endif %}
 
-<p class="muted">API：POST /api/upload（CSV 正文）、GET /api/state、GET /api/events、GET /api/weighings</p>
+<p class="muted">API：POST /api/upload（CSV 正文）、GET /api/state、GET /api/events、GET /api/weighings、
+POST /api/ledgers、GET /api/ledgers/&lt;id&gt;、POST /api/ledgers/&lt;id&gt;/verify|unverify|publish、GET /api/ledgers/&lt;id&gt;/lookup?seq=</p>
 </body>
 </html>

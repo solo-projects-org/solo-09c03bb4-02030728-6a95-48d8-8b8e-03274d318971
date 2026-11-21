@@ -1,0 +1,153 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>留样台账 #{{ ledger.id }}</title>
+<style>
+  body { font-family: system-ui, "PingFang SC", "Microsoft YaHei", sans-serif;
+         max-width: 980px; margin: 1.5rem auto; padding: 0 1rem; color: #222; }
+  h1 { font-size: 1.35rem; } h2 { font-size: 1.05rem; margin-top: 2rem; }
+  table { border-collapse: collapse; width: 100%; margin: .5rem 0 1rem; font-size: .92rem; }
+  th, td { border: 1px solid #ccc; padding: .3rem .55rem; text-align: right; }
+  th { background: #f3f3f3; }
+  td.l, th.l { text-align: left; }
+  .flash-ok { background: #e8f7e8; border: 1px solid #7b7; padding: .5rem .8rem; }
+  .flash-error { background: #fdeaea; border: 1px solid #c88; padding: .5rem .8rem; }
+  .flash-warn { background: #fff7e0; border: 1px solid #dbb14a; padding: .5rem .8rem; }
+  .stat { display: inline-block; margin: 0 2rem .5rem 0; }
+  .stat b { font-size: 1.15rem; }
+  form.inline { display: inline; }
+  form.box { border: 1px solid #ddd; padding: 1rem; border-radius: 6px; }
+  .muted { color: #777; font-size: .85rem; }
+  tr.amb td { background: #fff7e0; }
+  tr.none td { background: #fdeaea; }
+  .badge { display: inline-block; background: #dbb14a; color: #fff; border-radius: 3px;
+           padding: 0 .4em; font-size: .8em; }
+  .badge-bad { display: inline-block; background: #c66; color: #fff; border-radius: 3px;
+               padding: 0 .4em; font-size: .8em; }
+  .badge-ok { display: inline-block; background: #6a6; color: #fff; border-radius: 3px;
+              padding: 0 .4em; font-size: .8em; }
+  details { margin: .4rem 0; }
+  summary { cursor: pointer; }
+</style>
+</head>
+<body>
+<h1>留样台账 #{{ ledger.id }} <span class="muted">（{{ status_label }}）</span></h1>
+<p><a href="{{ url_for('index') }}">← 返回首页</a></p>
+
+{% with messages = get_flashed_messages(with_categories=true) %}
+  {% for cat, msg in messages %}<p class="flash-{{ cat }}">{{ msg }}</p>{% endfor %}
+{% endwith %}
+
+<div>
+  <span class="stat">序号区间 <b>{{ ledger.start_seq }} – {{ ledger.end_seq }}</b></span>
+  <span class="stat">区间称重 <b>{{ analysis.weighing_count }}</b> 条</span>
+  <span class="stat">台账行 <b>{{ analysis.row_count }}</b> 条</span>
+  <span class="stat">创建时间 <b>{{ ledger.created_at }}</b></span>
+</div>
+
+<h2>按序号查条码</h2>
+<form class="box" method="get" action="{{ url_for('ledger_page', ledger_id=ledger.id) }}">
+  <p>抽检序号：<input type="number" name="seq" min="1" required
+     {% if lookup_seq is not none %}value="{{ lookup_seq }}"{% endif %}>
+  <button type="submit">查条码</button>
+  {% if ledger.status != 'published' %}
+  <span class="muted">（当前{{ status_label }}，暂不可查）</span>
+  {% endif %}</p>
+</form>
+{% if lookup_error %}<p class="flash-error">{{ lookup_error }}</p>{% endif %}
+{% if lookup_result %}
+<p class="flash-ok">序号 {{ lookup_seq }} 的留样袋条码：<b>{{ lookup_result }}</b></p>
+{% endif %}
+
+{% if ledger.status == 'paused' %}
+<p class="flash-error">查袋已暂停：称重更正或核实变更使原配对不再是唯一解。
+下方「发布记录」中保留旧配对供追查；消除歧义后重新发布才能恢复查袋。</p>
+{% endif %}
+
+<h2>配对分析（台账克重与称重最多差 {{ tolerance }} 克，未留样的称重可跳过）</h2>
+{% if not analysis.exists %}
+<p class="flash-error">配不齐整份台账：在当前称重与核实记录下不存在完整配对。
+请检查台账 CSV、最近的称重更正或已登记的核实记录。</p>
+{% elif analysis.unique %}
+<p class="flash-ok">整份台账只有一种配对，可以发布。</p>
+{% else %}
+<p class="flash-warn">存在多种完整配对，下表黄色行为有歧义的条码；
+请登记现场核实（条码 ↔ 序号）消除歧义后再发布。</p>
+{% endif %}
+
+<table>
+  <tr><th>#</th><th class="l">条码</th><th>台账克重</th><th>配对序号</th>
+      <th class="l">候选序号</th><th>现场核实</th></tr>
+  {% for r in rows %}
+  <tr class="{{ 'none' if r.no_candidate else ('amb' if r.ambiguous else '') }}">
+    <td>{{ r.idx + 1 }}</td>
+    <td class="l">{{ r.barcode }}</td>
+    <td>{{ r.weight }}</td>
+    <td>
+      {% if r.assigned is not none %}{{ r.assigned }}{% else %}—{% endif %}
+      {% if r.ambiguous %}<span class="badge">歧义</span>{% endif %}
+    </td>
+    <td class="l">
+      {% if r.no_candidate %}<span class="badge-bad">无可配序号</span>
+      {% elif r.candidates|length > 1 %}
+        {{ r.candidates[:8]|join(', ') }}{% if r.candidates|length > 8 %} 等 {{ r.candidates|length }} 个{% endif %}
+      {% else %}{{ r.candidates|join(', ') }}{% endif %}
+    </td>
+    <td>{% if r.verified is not none %}<span class="badge-ok">已核实 → {{ r.verified }}</span>{% else %}—{% endif %}</td>
+  </tr>
+  {% endfor %}
+</table>
+{% if not analysis.unique %}<p class="muted">「配对序号」列为其中一组可行配对（每行取最小可行序号），仅供查看。</p>{% endif %}
+
+<h2>现场核实</h2>
+<form class="box" method="post" action="{{ url_for('ledger_verify', ledger_id=ledger.id) }}">
+  <p>条码：<input name="barcode" required> 对应抽检序号：
+     <input type="number" name="seq" required min="1">
+     <button type="submit">登记核实</button></p>
+  <p class="muted">已核实的条码固定到核实序号；若新核实与已有记录一起配不齐整张台账，本次登记会被退回。</p>
+</form>
+{% if verifs %}
+<table>
+  <tr><th class="l">条码</th><th>核实序号</th><th>登记时间</th><th></th></tr>
+  {% for v in verifs %}
+  <tr><td class="l">{{ v.barcode }}</td><td>{{ v.seq }}</td><td>{{ v.created_at }}</td>
+      <td><form class="inline" method="post"
+                action="{{ url_for('ledger_unverify', ledger_id=ledger.id) }}">
+            <input type="hidden" name="barcode" value="{{ v.barcode }}">
+            <button type="submit">撤销</button></form></td></tr>
+  {% endfor %}
+</table>
+{% else %}<p class="muted">暂无核实记录。</p>{% endif %}
+
+{% if analysis.unique %}
+<h2>发布</h2>
+<form class="box" method="post" action="{{ url_for('ledger_publish', ledger_id=ledger.id) }}">
+  <input type="hidden" name="pairs" value="{{ pairs_encoded }}">
+  <p><button type="submit">发布台账</button>
+     <span class="muted">整份台账只有一种配对才可发布；提交配对须与页面所见一致，发布后按序号可查条码。</span></p>
+</form>
+{% endif %}
+
+{% if pubs %}
+<h2>发布记录（旧配对供追查）</h2>
+{% for p in pubs %}
+<details {% if loop.first %}open{% endif %}>
+  <summary>发布 #{{ p.id }} · {{ p.published_at }} ·
+    {% if p.active and ledger.status == 'published' %}<span class="badge-ok">当前生效</span>
+    {% elif p.active %}<span class="badge">已暂停的旧配对</span>
+    {% else %}<span class="muted">历史配对（已被重新发布取代）</span>{% endif %}
+  </summary>
+  <table>
+    <tr><th>#</th><th class="l">条码</th><th>序号</th></tr>
+    {% for pp in pub_pairs[p.id] %}
+    <tr><td>{{ pp.idx + 1 }}</td><td class="l">{{ pp.barcode }}</td><td>{{ pp.seq }}</td></tr>
+    {% endfor %}
+  </table>
+</details>
+{% endfor %}
+{% endif %}
+
+</body>
+</html>
